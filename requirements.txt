@@ -1,0 +1,16 @@
+# Core dependencies
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# Image processing
+numpy>=1.24.0
+pillow>=10.0.0
+scipy>=1.11.0
+scikit-image>=0.22.0
+
+# Cell segmentation models
+cellpose>=3.0.0
+stardist>=0.8.5
+tensorflow>=2.12.0
+csbdeep>=0.7.0

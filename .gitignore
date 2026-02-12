@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.env
+.stardist_models/
+.cellpose_models/
+.next/
+node_modules/
+.git/
+.DS_Store
