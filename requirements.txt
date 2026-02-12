@@ -9,8 +9,5 @@ pillow>=10.0.0
 scipy>=1.11.0
 scikit-image>=0.22.0
 
-# Cell segmentation models
-cellpose>=3.0.0
-stardist>=0.8.5
-tensorflow>=2.12.0
-csbdeep>=0.7.0
+# Cell segmentation (Cellpose only — StarDist disabled)
+cellpose>=3.0.0,<4.0.0
