@@ -35,7 +35,7 @@ def load_models():
     try:
         logger.info("Loading Cellpose model...")
         from cellpose import models as cp_models
-        models["cellpose"] = cp_models.Cellpose(model_type="nuclei", gpu=False)
+        models["cellpose"] = cp_models.CellposeModel(model_type="nuclei", gpu=False)
         logger.info("✓ Cellpose loaded successfully")
     except Exception as e:
         logger.warning(f"Failed to load Cellpose: {e}")
@@ -134,7 +134,7 @@ def run_cellpose(image: np.ndarray, diameter: Optional[float] = None) -> dict:
         raise HTTPException(status_code=503, detail="Cellpose model not loaded")
     
     # Run segmentation
-    masks, flows, styles, diams = model.eval(
+    masks, flows, styles = model.eval(
         image,
         diameter=diameter or 30,
         channels=[0, 0] if len(image.shape) == 2 else [0, 0],
