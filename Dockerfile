@@ -10,7 +10,7 @@ ENV CELLPOSE_LOCAL_MODELS_PATH /app/.cellpose_models
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
