@@ -112,8 +112,12 @@ async def list_models():
     }
 
 
-def image_to_array(image_bytes: bytes) -> np.ndarray:
-    """Convert image bytes to numpy array"""
+def image_to_array(image_bytes: bytes) -> tuple[np.ndarray, float]:
+    """Convert image bytes to numpy array, downsizing if needed for memory.
+    
+    Returns (image_array, scale_factor) where scale_factor is used to
+    map coordinates back to the original image size.
+    """
     image = Image.open(io.BytesIO(image_bytes))
     
     # Convert to RGB if needed
@@ -124,19 +128,33 @@ def image_to_array(image_bytes: bytes) -> np.ndarray:
     elif image.mode != "RGB":
         image = image.convert("RGB")
     
-    return np.array(image)
+    # Downsize large images to fit in 512MB RAM
+    MAX_DIM = 1024
+    w, h = image.size
+    scale = 1.0
+    
+    if max(w, h) > MAX_DIM:
+        scale = MAX_DIM / max(w, h)
+        new_w, new_h = int(w * scale), int(h * scale)
+        logger.info(f"Downsizing image from {w}x{h} to {new_w}x{new_h} (scale={scale:.3f})")
+        image = image.resize((new_w, new_h), Image.LANCZOS)
+    
+    return np.array(image), scale
 
 
-def run_cellpose(image: np.ndarray, diameter: Optional[float] = None) -> dict:
+def run_cellpose(image: np.ndarray, scale: float, diameter: Optional[float] = None) -> dict:
     """Run Cellpose segmentation"""
     model = models.get("cellpose")
     if model is None:
         raise HTTPException(status_code=503, detail="Cellpose model not loaded")
     
+    # Adjust diameter for the scale
+    effective_diameter = (diameter or 30) * scale
+    
     # Run segmentation
     masks, flows, styles, diams = model.eval(
         image,
-        diameter=diameter or 30,
+        diameter=effective_diameter,
         channels=[0, 0] if len(image.shape) == 2 else [0, 0],
         flow_threshold=0.4,
         cellprob_threshold=0.0,
@@ -149,6 +167,9 @@ def run_cellpose(image: np.ndarray, diameter: Optional[float] = None) -> dict:
     from cellpose import utils
     outlines = utils.outlines_list(masks)
     
+    # Inverse scale to map coordinates back to original image size
+    inv_scale = 1.0 / scale
+    
     # Process results into a structured format
     cells = []
     for i, outline in enumerate(outlines):
@@ -160,13 +181,13 @@ def run_cellpose(image: np.ndarray, diameter: Optional[float] = None) -> dict:
         step = 4 if len(outline) > 20 else 1
         sampled_outline = outline[::step]
         
-        # Convert to list of {x, y} points
+        # Convert to list of {x, y} points — scaled back to original image size
         # pt[0] = col = x,  pt[1] = row = y
-        points = [{"x": int(pt[0]), "y": int(pt[1])} for pt in sampled_outline]
+        points = [{"x": int(pt[0] * inv_scale), "y": int(pt[1] * inv_scale)} for pt in sampled_outline]
         
         # Calculate bounding box from FULL outline for accuracy
-        all_x = [int(pt[0]) for pt in outline]
-        all_y = [int(pt[1]) for pt in outline]
+        all_x = [int(pt[0] * inv_scale) for pt in outline]
+        all_y = [int(pt[1] * inv_scale) for pt in outline]
         
         if not all_x or not all_y:
             continue
@@ -221,11 +242,11 @@ async def segment_image(
         contents = await file.read()
         logger.info(f"Received image: {file.filename}, size: {len(contents)} bytes")
         
-        image = image_to_array(contents)
-        logger.info(f"Image shape: {image.shape}")
+        image, scale = image_to_array(contents)
+        logger.info(f"Image shape: {image.shape} (scale={scale:.3f})")
         
         if model == "cellpose":
-            result = run_cellpose(image, diameter)
+            result = run_cellpose(image, scale, diameter)
         elif model == "stardist":
             result = run_stardist(image, prob_thresh, nms_thresh)
         else:
