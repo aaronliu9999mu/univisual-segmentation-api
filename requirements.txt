@@ -11,3 +11,6 @@ scikit-image>=0.22.0
 
 # Cell segmentation (Cellpose only — StarDist disabled)
 cellpose>=3.0.0,<4.0.0
+
+# Monitoring
+psutil>=5.9.0

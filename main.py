@@ -5,6 +5,7 @@ Local FastAPI server for Cellpose 3 and StarDist
 
 import io
 import os
+import gc
 import logging
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -14,6 +15,7 @@ from PIL import Image
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import psutil
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -129,7 +131,7 @@ def image_to_array(image_bytes: bytes) -> tuple[np.ndarray, float]:
         image = image.convert("RGB")
     
     # Downsize large images to fit in 512MB RAM
-    MAX_DIM = 1024
+    MAX_DIM = 512
     w, h = image.size
     scale = 1.0
     
@@ -158,7 +160,12 @@ def run_cellpose(image: np.ndarray, scale: float, diameter: Optional[float] = No
         channels=[0, 0] if len(image.shape) == 2 else [0, 0],
         flow_threshold=0.4,
         cellprob_threshold=0.0,
+        batch_size=4,
+        augment=False,
     )
+    
+    # Free memory after inference
+    gc.collect()
     
     # Count cells
     cell_count = len(np.unique(masks)) - 1  # Subtract background
@@ -242,6 +249,18 @@ async def segment_image(
         contents = await file.read()
         logger.info(f"Received image: {file.filename}, size: {len(contents)} bytes")
         
+        # Reject files larger than 10MB to prevent OOM
+        MAX_FILE_SIZE = 10 * 1024 * 1024
+        if len(contents) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large ({len(contents) // 1024 // 1024}MB). Maximum allowed size is 10MB."
+            )
+        
+        process = psutil.Process()
+        mem_mb = process.memory_info().rss / 1024 / 1024
+        logger.info(f"Memory before segmentation: {mem_mb:.1f} MB")
+        
         image, scale = image_to_array(contents)
         logger.info(f"Image shape: {image.shape} (scale={scale:.3f})")
         
@@ -252,6 +271,8 @@ async def segment_image(
         else:
             raise HTTPException(status_code=400, detail=f"Unknown model: {model}")
         
+        mem_mb = process.memory_info().rss / 1024 / 1024
+        logger.info(f"Memory after segmentation: {mem_mb:.1f} MB")
         logger.info(f"Segmentation complete: {result['cell_count']} cells detected")
         
         return JSONResponse({
