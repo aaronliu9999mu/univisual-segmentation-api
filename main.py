@@ -131,7 +131,7 @@ def image_to_array(image_bytes: bytes) -> tuple[np.ndarray, float]:
         image = image.convert("RGB")
     
     # Downsize large images to fit in 512MB RAM
-    MAX_DIM = 512
+    MAX_DIM = 384
     w, h = image.size
     scale = 1.0
     
@@ -141,7 +141,14 @@ def image_to_array(image_bytes: bytes) -> tuple[np.ndarray, float]:
         logger.info(f"Downsizing image from {w}x{h} to {new_w}x{new_h} (scale={scale:.3f})")
         image = image.resize((new_w, new_h), Image.LANCZOS)
     
-    return np.array(image), scale
+    arr = np.array(image)
+    
+    # Convert to grayscale to reduce memory (3x savings for RGB)
+    if len(arr.shape) == 3:
+        arr = np.mean(arr, axis=2).astype(np.uint8)
+        logger.info(f"Converted to grayscale: {arr.shape}")
+    
+    return arr, scale
 
 
 def run_cellpose(image: np.ndarray, scale: float, diameter: Optional[float] = None) -> dict:
@@ -164,7 +171,8 @@ def run_cellpose(image: np.ndarray, scale: float, diameter: Optional[float] = No
         augment=False,
     )
     
-    # Free memory after inference
+    # Free memory immediately — flows and styles are large and unused
+    del flows, styles, diams
     gc.collect()
     
     # Count cells
@@ -262,6 +270,8 @@ async def segment_image(
         logger.info(f"Memory before segmentation: {mem_mb:.1f} MB")
         
         image, scale = image_to_array(contents)
+        del contents  # Free raw bytes immediately
+        gc.collect()
         logger.info(f"Image shape: {image.shape} (scale={scale:.3f})")
         
         if model == "cellpose":
